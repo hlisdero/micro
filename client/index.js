@@ -120,6 +120,16 @@ micro.UI = class extends HTMLBodyElement {
             return;
         }
 
+        this.activity = new micro.Activity();
+        this.activity.addEventListener("editableedituser", event => {
+            this._storeUser(event.detail.object);
+            this._update();
+        });
+        this.activity.addEventListener("editableeditsettings", event => {
+            this._data.settings = event.detail.object;
+            this._update();
+        });
+
         micro.keyboard.enableActivatedClass();
         micro.bind.transforms.ShortcutContext = micro.keyboard.ShortcutContext;
         micro.bind.transforms.Shortcut = micro.keyboard.Shortcut;
@@ -131,17 +141,20 @@ micro.UI = class extends HTMLBodyElement {
             document.importNode(this.querySelector(".micro-ui-template").content, true),
             this.querySelector("main"));
         this._data = new micro.bind.Watchable({
-            settings: {title: document.title}
+            settings: {title: document.title},
+            notification: null
         });
         micro.bind.bind(this.children, this._data);
 
         let update = () => {
+            this.classList.toggle("micro-ui-notifying", this._data.notification);
             document.querySelector('link[rel=icon][sizes="16x16"]').href =
                 this._data.settings.icon_small || "";
             document.querySelector('link[rel=icon][sizes="192x192"]').href =
                 this._data.settings.icon_large || "";
         };
         this._data.watch("settings", update);
+        this._data.watch("notification", update);
 
         this.features = {
             es6TypedArray: "ArrayBuffer" in window,
@@ -200,7 +213,9 @@ micro.UI = class extends HTMLBodyElement {
                 (async() => {
                     try {
                         let user = await ui.call("GET", `/api/users/${this.user.id}`);
+                        // TODO
                         this.dispatchEvent(new CustomEvent("user-edit", {detail: {user}}));
+                        this.activity.publish("editable-edit", user);
                     } catch (e) {
                         if (e instanceof TypeError || e instanceof micro.APIError &&
                             e.error.__type__ === "AuthenticationError") {
@@ -303,7 +318,6 @@ micro.UI = class extends HTMLBodyElement {
      */
     handleCallError(e) {
         if (e instanceof TypeError) {
-            console.log("STRANGE ERROR", e);
             this.notify(
                 "Oops, you seem to be offline! Please check your connection and try again.");
         } else if (e instanceof micro.APIError && e.error.__type__ === "NotFoundError") {
@@ -338,9 +352,15 @@ micro.UI = class extends HTMLBodyElement {
             notification = elem;
         }
 
-        let space = this.querySelector(".micro-ui-notification-space");
-        space.textContent = "";
-        space.appendChild(notification);
+        this._data.notification = notification;
+    }
+
+    /** TODO. */
+    onboard() {
+        if (!sessionStorage.onboard && ui.user.name === "Guest") {
+            // TODO sessionStorage.onboard = true;
+            this.notify(document.createElement("micro-onboard-dialog"));
+        }
     }
 
     /**
@@ -379,7 +399,9 @@ micro.UI = class extends HTMLBodyElement {
         try {
             user = await ui.call("PATCH", `/api/users/${this.user.id}`,
                                  {op: "enable_notifications", push_subscription: subscription});
+            // TODO: compatibility
             micro.util.dispatchEvent(this, new CustomEvent("user-edit", {detail: {user}}));
+            this.activity.publish("user-enable-device-notifications", user);
             return "ok";
         } catch (e) {
             if (e instanceof micro.APIError &&
@@ -498,15 +520,44 @@ micro.UI = class extends HTMLBodyElement {
 
         } else if (event.target === window && event.type === "popstate") {
             this._route(location.pathname).catch(micro.util.catch);
-
-        } else if (event.target === this && event.type === "user-edit") {
-            this._storeUser(event.detail.user);
-            this._update();
-
-        } else if (event.target === this && event.type === "settings-edit") {
-            this._data.settings = event.detail.settings;
-            this._update();
         }
+    }
+};
+
+/** TODO. */
+micro.editUser = async function(attrs) {
+    try {
+        let user = await ui.call("POST", `/api/users/${ui.user.id}`, attrs);
+        ui.activity.publish("editable-edit", user);
+        // TODO compatibility
+        ui.dispatchEvent(new CustomEvent("user-edit", {detail: {user}}));
+    } catch (e) {
+        ui.handleCallError(e);
+    }
+};
+
+/** TODO. */
+micro.Activity = class extends EventTarget {
+    /** TODO. */
+    publish(type, object, detail = {}) {
+        let event = {type, object, user: ui.user, detail};
+        let typ = event.type.replace("-", "");
+        console.log(typ, event);
+        if (object) {
+            console.log("OBJECT", `${typ}${object.__type__.toLowerCase()}`);
+            this.dispatchEvent(new CustomEvent(`${typ}${object.__type__.toLowerCase()}`, {detail: event}));
+        }
+        this.dispatchEvent(new CustomEvent(typ, {detail: event}));
+        this.dispatchEvent(new CustomEvent("event", {detail: event}));
+        // User:
+        //   dis/enable device notifications
+        //   set / remove email [legacy]
+        //   edit user
+        // global:
+        //   edit settings
+        //   hello: add greeting
+        // $context:
+        //   sub unsub + order + trash (mixins, attachments)
     }
 };
 
@@ -525,7 +576,7 @@ micro.SimpleNotification = class extends HTMLElement {
     handleEvent(event) {
         if (event.currentTarget === this.querySelector(".micro-simple-notification-dismiss") &&
                 event.type === "click") {
-            this.parentNode.removeChild(this);
+            ui.notify(null);
         }
     }
 };
@@ -548,6 +599,28 @@ micro.ErrorNotification = class extends HTMLElement {
         }
     }
 };
+
+micro.OnboardDialog = class extends HTMLElement {
+    createdCallback() {
+        this.appendChild(
+            document.importNode(ui.querySelector("#micro-onboard-dialog-template").content, true));
+        this.classList.add("micro-notification", "compact");
+        this._data = {
+            user: ui.user,
+            settings: ui.settings,
+
+            save: async() => {
+                let form = this.querySelector("form");
+                await micro.editUser({name: form.elements.name.value});
+                this._data.close();
+            },
+
+            close: () => ui.notify(null)
+        };
+        micro.bind.bind(this.children, this._data);
+    }
+};
+document.registerElement("micro-onboard-dialog", micro.OnboardDialog);
 
 /**
  * Enhanced ordered list.
@@ -937,6 +1010,13 @@ micro.EditUserPage = class extends micro.Page {
         this.caption = "Edit user settings";
         this.appendChild(document.importNode(
             ui.querySelector(".micro-edit-user-page-template").content, true));
+        this._data = {
+            save: async() => {
+                await micro.editUser({name: this._form.elements.name.value});
+            }
+        };
+        micro.bind.bind(this.children, this._data);
+
         this._form = this.querySelector("form");
         this.querySelector(".micro-edit-user-edit").addEventListener("submit", this);
 
@@ -1070,24 +1150,7 @@ micro.EditUserPage = class extends micro.Page {
     }
 
     handleEvent(event) {
-        if (event.currentTarget === this._form) {
-            event.preventDefault();
-            (async() => {
-                try {
-                    let user = await ui.call("POST", `/api/users/${this._user.id}`, {
-                        name: this._form.elements.name.value
-                    });
-                    ui.dispatchEvent(new CustomEvent("user-edit", {detail: {user}}));
-                } catch (e) {
-                    if (e instanceof micro.APIError && e.error.__type__ === "InputError") {
-                        ui.notify("The name is missing.");
-                    } else {
-                        ui.handleCallError(e);
-                    }
-                }
-            })().catch(micro.util.catch);
-
-        } else if (event.currentTarget === this._setEmailAction && event.type === "click") {
+        if (event.currentTarget === this._setEmailAction && event.type === "click") {
             this._setEmail().catch(micro.util.catch);
         } else if (event.currentTarget === this._cancelSetEmailAction && event.type === "click") {
             this._cancelSetEmail();
@@ -1137,9 +1200,11 @@ micro.EditSettingsPage = class extends micro.Page {
                         provider_description: description,
                         feedback_url: form.elements.feedback_url.value
                     });
-                    ui.navigate("/").catch(micro.util.catch);
+                    // TODO
                     micro.util.dispatchEvent(ui,
                                              new CustomEvent("settings-edit", {detail: {settings}}));
+                    ui.activity.publish("editable-edit", settings);
+                    ui.navigate("/").catch(micro.util.catch);
                 } catch (e) {
                     ui.handleCallError(e);
                 }

@@ -552,6 +552,11 @@ legend::after {
     cursor: move;
 }
 
+.micro-ui-notifying main {
+    filter: blur(1px) opacity(50%);
+    pointer-events: none;
+}
+
 .micro-ui-inside {
     box-sizing: content-box;
     max-width: 70ch;
@@ -653,6 +658,12 @@ main {
 
 .micro-notification .micro-ui-inside > :last-child {
     margin-bottom: 0;
+}
+
+.micro-notification h1 {
+    font-size: 1rem;
+    font-weight: bold;
+    border-bottom: none;
 }
 
 /* ---- SimpleNotification ---- */

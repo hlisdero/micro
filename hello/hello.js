@@ -57,7 +57,7 @@ hello.StartPage = class extends micro.Page {
                     let form = this.querySelector("form");
                     let greeting = await ui.call("POST", "/api/greetings",
                                                  {text: form.elements.text.value});
-                    this._data.greetings.unshift(greeting);
+                    ui.activity.publish("create-greeting", null, {greeting});
                     form.reset();
                 } catch (e) {
                     ui.handleCallError(e);
@@ -68,6 +68,15 @@ hello.StartPage = class extends micro.Page {
     }
 
     attachedCallback() {
+        ui.onboard();
+        this._addGreeting = event => {
+            this._data.greetings.unshift(event.detail.detail.greeting);
+            if (event.detail.user.id === ui.user.id) {
+                ui.onboard();
+            }
+        };
+        ui.activity.addEventListener("creategreeting", this._addGreeting);
+
         (async() => {
             try {
                 let greetings = await ui.call("GET", "/api/greetings");
@@ -76,6 +85,10 @@ hello.StartPage = class extends micro.Page {
                 ui.handleCallError(e);
             }
         })().catch(micro.util.catch);
+    }
+
+    detachedCallback() {
+        ui.activity.removeEventListener("creategreeting", this._addGreeting);
     }
 };
 
