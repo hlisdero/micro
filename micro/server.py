@@ -265,7 +265,7 @@ class Server:
             server=self)
         # Install static file handler manually to allow pre-processing
         cast(_ApplicationSettings, application.settings).update({'static_path': self.client_path})
-        self._server = HTTPServer(application)
+        self._server = HTTPServer(application, xheaders=True)
 
         self._empty_trash_task = None # type: Optional[Task[None]]
         self._collect_statistics_task = None # type: Optional[Task[None]]
