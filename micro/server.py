@@ -45,6 +45,7 @@ from . import micro, templates, error
 from .micro import ( # pylint: disable=unused-import; typing
     Activity, AuthRequest, Collection, JSONifiable, Object, User, InputError, AuthenticationError,
     CommunicationError, PermissionError)
+from .error import RateLimitError
 from .resource import NoResourceError, ForbiddenResourceError, BrokenResourceError
 from .util import (Expect, ExpectFunc, cancel, look_up_files, str_or_none, parse_slice,
                    check_polyglot)
@@ -340,6 +341,7 @@ class Endpoint(RequestHandler):
         auth_secret = self.get_cookie('auth_secret')
         if auth_secret:
             self.current_user = self.app.authenticate(auth_secret)
+            self.current_user.ip = self.request.remote_ip
 
         if self.request.body:
             try:
@@ -388,7 +390,8 @@ class Endpoint(RequestHandler):
                 error.ValueError: http.client.BAD_REQUEST,
                 NoResourceError: http.client.NOT_FOUND,
                 ForbiddenResourceError: http.client.FORBIDDEN,
-                BrokenResourceError: http.client.BAD_REQUEST
+                BrokenResourceError: http.client.BAD_REQUEST,
+                RateLimitError: http.client.TOO_MANY_REQUESTS
             }
             self.set_status(status[type(e)])
             self.write(e.json())
