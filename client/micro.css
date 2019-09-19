@@ -469,7 +469,8 @@ legend {
     color: var(--micro-color-primary);
 }
 
-.micro-panel-main {
+.micro-panel-main,
+.micro-panel > :only-child {
     flex: auto;
 }
 
