@@ -298,6 +298,7 @@ class Server:
                 loop.stop()
             ensure_future(_stop())
         loop.add_signal_handler(SIGINT, _on_sigint)
+        getLogger(__name__).info('Server started at %s', self.url)
         loop.run_forever()
 
     def _render_email_auth_message(self, email, auth_request, auth):
