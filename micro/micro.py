@@ -27,7 +27,7 @@ import re
 from smtplib import SMTP
 import sys
 from typing import (AsyncIterator, Awaitable, Callable, Coroutine, Dict, Generic, Iterator, List,
-                    Optional, Sequence, Set, Tuple, Type, TypeVar, Union, cast, overload)
+                    Optional, Set, Tuple, Type, TypeVar, Union, cast, overload)
 from urllib.parse import SplitResult, urlparse, urlsplit
 
 from pywebpush import WebPusher, WebPushException
@@ -39,14 +39,14 @@ from requests.exceptions import RequestException
 from tornado.ioloop import IOLoop
 from typing_extensions import Protocol
 
-from .analytics import Analytics
 from .error import CommunicationError, ValueError
 from .jsonredis import (ExpectFunc, JSONRedis, JSONRedisSequence, JSONRedisMapping, RedisList,
                         RedisSequence, bzpoptimed)
-from .resource import (Analyzer, HandleResourceFunc, Image, Resource, Video, handle_image,
-                       handle_webpage, handle_youtube)
-from .util import (OnType, check_email, expect_opt_type, expect_type, parse_isotime, randstr,
-                   run_instant, str_or_none)
+from .resource import ( # pylint: disable=unused-import; typing
+    Analyzer, HandleResourceFunc, Image, Resource, Video, handle_image, handle_webpage,
+    handle_youtube)
+from .util import (Expect, OnType, check_email, expect_opt_type, expect_type, parse_isotime,
+                   randstr, run_instant, str_or_none)
 
 _PUSH_TTL = 24 * 60 * 60
 
@@ -148,6 +148,8 @@ class Application:
         except builtins.ValueError:
             raise ValueError('redis_url_invalid')
 
+        # pylint: disable=import-outside-toplevel; circular dependency
+        from .analytics import Analytics, Referral
         self.types = {
             'User': User,
             'Settings': Settings,
@@ -156,7 +158,8 @@ class Application:
             'AuthRequest': AuthRequest,
             'Resource': Resource,
             'Image': Image,
-            'Video': Video
+            'Video': Video,
+            'Referral': Referral
         } # type: Dict[str, Type[JSONifiable]]
         self.user = None # type: Optional[User]
         self.users = Collection(RedisList('users', self.r.r), expect=expect_type(User), app=self)
@@ -520,7 +523,7 @@ class Editable:
         return self.app.r.omget(self._authors, default=AssertionError, expect=expect_type(User))
 
     @overload
-    def edit(self, *, asynchronous: None, **attrs: object) -> None:
+    def edit(self, *, asynchronous: None = None, **attrs: object) -> None:
         # pylint: disable=function-redefined,missing-docstring; overload
         pass
     @overload
@@ -720,8 +723,7 @@ class Collection(Generic[O], JSONRedisMapping[O, JSONifiable]):
     def __init__(
             self, ids: RedisSequence, *,
             check: Callable[[Union[int, slice, str]], None] = None,
-            expect: ExpectFunc[JSONifiable, O] = cast(ExpectFunc[JSONifiable, O],
-                                                      expect_type(Object)),
+            expect: ExpectFunc[O] = cast(ExpectFunc[O], expect_type(Object)),
             app: Application) -> None:
         # pylint: disable=function-redefined, super-init-not-called; overload
         pass
@@ -732,8 +734,7 @@ class Collection(Generic[O], JSONRedisMapping[O, JSONifiable]):
     def __init__(
             self, *args: object,
             check: Callable[[Union[int, slice, str]], None] = None,
-            expect: ExpectFunc[JSONifiable, O] = cast(ExpectFunc[JSONifiable, O],
-                                                      expect_type(Object)),
+            expect: ExpectFunc[O] = cast(ExpectFunc[O], expect_type(Object)),
             **kwargs: object) -> None:
         # pylint: disable=function-redefined, super-init-not-called; overload
         # Compatibility for host (deprecated since 0.24.0)
@@ -850,19 +851,16 @@ class Orderable:
 class User(Object, Editable):
     """See :ref:`User`."""
 
-    def __init__(
-            self, *, id: str, app: Application, authors: List[str], name: str, email: str,
-            auth_secret: str, create_time: str, authenticate_time: str,
-            device_notification_status: str, push_subscription: Optional[str]) -> None:
-        super().__init__(id, app)
-        Editable.__init__(self, authors=authors)
-        self.name = name
-        self.email = email
-        self.auth_secret = auth_secret
-        self.create_time = parse_isotime(create_time, aware=True)
-        self.authenticate_time = parse_isotime(authenticate_time, aware=True)
-        self.device_notification_status = device_notification_status
-        self.push_subscription = push_subscription
+    def __init__(self, *, app: Application, **data: Dict[str, object]) -> None:
+        super().__init__(id=cast(str, data['id']), app=app)
+        Editable.__init__(self, authors=cast(List[str], data['authors']))
+        self.name = cast(str, data['name'])
+        self.email = cast(Optional[str], data['email'])
+        self.auth_secret = cast(str, data['auth_secret'])
+        self.create_time = parse_isotime(cast(str, data['create_time']), aware=True)
+        self.authenticate_time = parse_isotime(cast(str, data['authenticate_time']), aware=True)
+        self.device_notification_status = cast(str, data['device_notification_status'])
+        self.push_subscription = cast(Optional[str], data['push_subscription'])
 
     def store_email(self, email):
         """Update the user's *email* address.
@@ -1168,7 +1166,13 @@ class Settings(Object, Editable):
         }
 
 class Activity(Object, JSONRedisSequence[JSONifiable]):
-    """See :ref:`Activity`."""
+    """See :ref:`Activity`.
+
+    .. attribute:: post
+
+       Hook of the form ``post(event)`` that is called after :meth:`publish` with the corresponding
+       *event*. May be ``None``.
+    """
 
     class Stream(AsyncIterator['Event']):
         """:cls:`collections.abc.AsyncGenerator` of events."""
@@ -1215,6 +1219,7 @@ class Activity(Object, JSONRedisSequence[JSONifiable]):
                  pre: Callable[[], None] = None) -> None:
         super().__init__(id, app)
         JSONRedisSequence.__init__(self, app.r, '{}.items'.format(id), pre)
+        self.post = None # type: Optional[Callable[[Event], None]]
         self.host = None # type: Optional[object]
         self._subscriber_ids = subscriber_ids
         self._streams = set() # type: Set[Queue[Optional[Event]]]
@@ -1239,6 +1244,8 @@ class Activity(Object, JSONRedisSequence[JSONifiable]):
                 subscriber.notify(event)
         for stream in self._streams:
             stream.put_nowait(event)
+        if self.post:
+            self.post(event)
 
     def subscribe(self):
         """See :http:patch:`/api/(activity-url)` (``subscribe``)."""
@@ -1388,15 +1395,14 @@ class Location:
     @staticmethod
     def parse(data: Dict[str, object]) -> 'Location':
         """Parse the given location JSON *data* into a :class:`Location`."""
-        name, coords = data.get('name'), data.get('coords')
-        if not isinstance(name, str):
-            raise TypeError()
-        if coords is not None:
-            if not (isinstance(coords, Sequence) and len(coords) == 2 and
-                    all(isinstance(value, (float, int)) for value in coords)):
+        coords_list = Expect.opt(Expect.list(Expect.float))(data.get('coords'))
+        if coords_list is None:
+            coords = None
+        else:
+            if len(coords_list) != 2:
                 raise TypeError()
-            coords = (float(coords[0]), float(coords[1]))
-        return Location(name, coords)
+            coords = (float(coords_list[0]), float(coords_list[1]))
+        return Location(Expect.str(data.get('name')), coords)
 
     def json(self) -> Dict[str, object]:
         """Return a JSON representation of the location."""

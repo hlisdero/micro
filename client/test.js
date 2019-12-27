@@ -39,6 +39,9 @@ exports.startBrowser = function(test, subject) {
 
     let capabilities = {
         browserName,
+        // Work around Safari 13 missing elements on click (see
+        // https://bugs.webkit.org/show_bug.cgi?id=202589)
+        version: process.env.BROWSER_VERSION,
         platform: process.env.PLATFORM,
         tunnelIdentifier: process.env.TUNNEL_ID,
         name: `[${subject}]${tag} ${test.fullTitle()}`
@@ -73,5 +76,13 @@ exports.untilElementTextLocated = function(locator, text) {
         }
         let t = await elem.getText();
         return t.includes(text) ? elem : null;
+    });
+};
+
+/** Create a condition that will wait for the attribute with *attributeName* to match *regex*. */
+exports.untilElementAttributeMatches = function(element, attributeName, regex) {
+    return new WebElementCondition("until element attribute matches", async () => {
+        const value = await element.getAttribute(attributeName);
+        return regex.test(value) ? element : null;
     });
 };

@@ -23,15 +23,6 @@
 micro.util.watchErrors();
 
 micro.LIST_LIMIT = 100;
-micro.SHORT_DATE_FORMAT = {
-    year: "numeric",
-    month: "short",
-    day: "numeric"
-};
-micro.SHORT_DATE_TIME_FORMAT = Object.assign({
-    hour: "2-digit",
-    minute: "2-digit"
-}, micro.SHORT_DATE_FORMAT);
 
 /**
  * Find the first ancestor of *elem* that satisfies *predicate*.
@@ -268,6 +259,14 @@ micro.UI = class extends HTMLBodyElement {
                         this.dispatchEvent(new CustomEvent("user-edit", {detail: {user}}));
                         const settings = await ui.call("GET", "/api/settings");
                         this.dispatchEvent(new CustomEvent("settings-edit", {detail: {settings}}));
+                        if (
+                            document.referrer &&
+                            new URL(document.referrer).origin !== location.origin
+                        ) {
+                            await ui.call(
+                                "POST", "/api/analytics/referrals", {url: document.referrer}
+                            );
+                        }
                     } catch (e) {
                         if (!(e instanceof micro.NetworkError)) {
                             throw e;
@@ -518,6 +517,12 @@ micro.UI = class extends HTMLBodyElement {
             }
             return "error";
         }
+    }
+
+    /** Scroll :class:`Element` *elem* into view, minding the header. */
+    scrollToElement(elem) {
+        const em = parseFloat(getComputedStyle(this).fontSize);
+        scroll(0, elem.offsetTop - (2 * 1.5 * em + 2 * 1.5 * em / 4));
     }
 
     async _navigate() {
@@ -884,8 +889,8 @@ micro.OL = class extends HTMLOListElement {
 
                 // Locate li the pointer is over
                 if (event.type === "touchmove") {
-                    x = event.targetTouches[0].clientX;
-                    y = event.targetTouches[0].clientY;
+                    x = event.changedTouches[0].clientX;
+                    y = event.changedTouches[0].clientY;
                 } else {
                     x = event.clientX;
                     y = event.clientY;
@@ -1133,11 +1138,10 @@ micro.OptionsElement = class extends HTMLElement {
                 );
             }
         );
-        if (this._input.readOnly) {
-            // Listen for mouseup to prevent reopening if the element is inside a label (as clicking
-            // on label content will trigger a click event on the input)
-            this._input.addEventListener("mouseup", () => this.activate());
-        }
+        this._input.addEventListener("focus", () => this.activate());
+        // Listen for mouseup to prevent reopening if the element is inside a label (as clicking on
+        // label content will trigger a click event on the input)
+        this._input.addEventListener("mouseup", () => this.activate());
         this._input.addEventListener("blur", () => this.deactivate());
     }
 
@@ -1969,8 +1973,9 @@ micro.ActivityPage = class extends micro.Page {
             let li = document.createElement("li");
             let time = document.createElement("time");
             time.dateTime = event.time;
-            time.textContent =
-                new Date(event.time).toLocaleString("en", micro.SHORT_DATE_TIME_FORMAT);
+            time.textContent = micro.bind.transforms.formatDate(
+                null, event.time, micro.bind.transforms.SHORT_DATE_TIME_FORMAT
+            );
             li.appendChild(time);
             li.appendChild(ui.renderEvent[event.type](event));
             ul.appendChild(li);
@@ -1981,6 +1986,20 @@ micro.ActivityPage = class extends micro.Page {
 };
 
 Object.assign(micro.bind.transforms, {
+    SHORT_DATE_FORMAT: {
+        year: "numeric",
+        month: "short",
+        day: "numeric"
+    },
+
+    SHORT_DATE_TIME_FORMAT: {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+    },
+
     /**
      * Render *markup text* into a :class:`DocumentFragment`.
      *
