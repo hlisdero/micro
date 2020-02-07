@@ -955,17 +955,27 @@ micro.OL = class extends HTMLOListElement {
 micro.Button = class extends HTMLButtonElement {
     createdCallback() {
         this.run = null;
+        this.suspended = false;
+
         this.addEventListener("click", event => {
             if (this.form && this.type === "submit") {
-                if (this.form.checkValidity()) {
-                    // Prevent default form submission
+                if (this.suspended) {
+                    // Prevent default form validation and submission
                     event.preventDefault();
                 } else {
-                    // Do not trigger the action and let the default validation handling kick in
-                    return;
+                    if (this.form.checkValidity()) {
+                        // Prevent default form submission
+                        event.preventDefault();
+                    } else {
+                        // Do not trigger action and let default form validation kick in
+                        return;
+                    }
                 }
             }
-            this.trigger().catch(micro.util.catch);
+
+            if (!this.suspended) {
+                this.trigger().catch(micro.util.catch);
+            }
         });
     }
 
@@ -976,28 +986,29 @@ micro.Button = class extends HTMLButtonElement {
      * :attr:`run`.
      */
     async trigger() {
+        if (this.suspended) {
+            throw new Error("suspended");
+        }
         if (!this.run) {
             return undefined;
         }
 
-        let i = this.querySelector("i");
+        this.suspended = true;
+        this.classList.add("micro-button-suspended");
+        const i = this.querySelector("i");
         let progressI;
-        this.disabled = true;
         if (i) {
             progressI = document.createElement("i");
             progressI.className = "fa fa-spinner fa-spin";
             i.insertAdjacentElement("afterend", progressI);
-            // TODO via class and style
-            i.style.display = "none";
         }
         try {
-            return await Promise.resolve(this.run());
+            return await this.run();
         } finally {
-            this.disabled = false;
+            this.suspended = false;
+            this.classList.remove("micro-button-suspended");
             if (i) {
                 progressI.remove();
-                // TODO via class and style
-                i.style.display = "";
             }
         }
     }

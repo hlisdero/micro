@@ -877,3 +877,7 @@ micro-activity-page > ul {
 .micro-activity-all .micro-activity-show-more {
     display: none;
 }
+
+.micro-button-suspended i:first-of-type {
+    display: none;
+}
