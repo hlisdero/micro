@@ -31,7 +31,9 @@ class AnalyzeServiceTest(AsyncTestCase):
         values = iter(config['resource']['video_service_keys'].split())
         video_service_keys = dict(zip(values, values))
 
-        analyzer = Analyzer(handlers=[handle_youtube(video_service_keys['youtube']), handle_image])
+        # analyzer = Analyzer(
+        analyzer = Analyzer(handlers=[handle_youtube(video_service_keys['youtube']), handle_image],
+                            files=Files(mkdtemp()))
         video = await analyzer.analyze('https://www.youtube.com/watch?v=QH2-TGUlwu4')
         self.assertIsInstance(video, Video)
         self.assertEqual(video.content_type, 'text/html')

@@ -17,6 +17,7 @@
 
 import os
 from tempfile import mkdtemp
+from urllib.parse import urlsplit
 
 from tornado.testing import AsyncTestCase, AsyncHTTPTestCase, gen_test
 from tornado.web import Application, RequestHandler
@@ -42,22 +43,30 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
 
     @gen_test
     async def test_analyze_image(self) -> None:
-        analyzer = Analyzer()
-        image = await analyzer.analyze(self.get_url('/static/image.svg'))
+        # analyzer = Analyzer()
+        analyzer = Analyzer(files=Files(mkdtemp()))
+        print('FILES', analyzer.files.path)
+        # image = await analyzer.analyze(self.get_url('/static/image.svg'))
+        image = await analyzer.analyze(self.get_url('/static/image.jpg'))
         self.assertIsInstance(image, Image)
-        self.assertEqual(image.content_type, 'image/svg+xml')
+        # self.assertEqual(image.content_type, 'image/svg+xml')
+        self.assertEqual(image.content_type, 'image/jpeg')
         self.assertIsNone(image.description)
-        self.assertIsNone(image.image)
+        # self.assertIsNone(image.image)
+        self.assertEqual(urlsplit(image.image.url).scheme, 'file')
+        self.assertRegex(image.image.content_type, 'image/jpeg')
 
     @gen_test
     async def test_analyze_webpage(self) -> None:
-        analyzer = Analyzer()
+        # analyzer = Analyzer()
+        analyzer = Analyzer(files=Files(mkdtemp()))
         webpage = await analyzer.analyze(self.get_url('/static/webpage.html'))
         self.assertIsInstance(webpage, Resource)
         self.assertEqual(webpage.content_type, 'text/html')
         self.assertEqual(webpage.description, 'Happy Blog')
         assert isinstance(webpage.image, Image)
-        self.assertRegex(webpage.image.url, '/static/image.svg$')
+        # self.assertRegex(webpage.image.url, '/static/image.svg$')
+        self.assertRegex(urlsplit(webpage.image.url).scheme, 'file')
 
     @gen_test
     async def test_analyze_file(self) -> None:
@@ -82,7 +91,9 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
 
     @gen_test
     async def test_analyze_resource_loop(self) -> None:
-        analyzer = Analyzer()
+        # TODO
+        # analyzer = Analyzer()
+        analyzer = Analyzer(files=Files(mkdtemp()))
         with self.assertRaises(BrokenResourceError):
             await analyzer.analyze(self.get_url('/static/loop.html'))
 

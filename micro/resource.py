@@ -36,9 +36,11 @@ import mimetypes
 from mimetypes import guess_extension, guess_type
 from os import listdir
 from pathlib import Path
-from typing import Awaitable, Callable, Dict, Iterable, List, Optional, Tuple, Union, cast
+from typing import Awaitable, Callable, Dict, Iterable, List, Optional, Tuple, Union, cast, overload
 from urllib.parse import parse_qsl, urljoin, urlsplit
 
+import PIL.Image
+from PIL import ImageOps, UnidentifiedImageError
 from tornado.httpclient import HTTPClientError
 
 from . import error
@@ -94,10 +96,8 @@ class Image(Resource):
     @staticmethod
     def parse(data: Dict[str, object], **args: object) -> 'Image':
         resource = Resource.parse(data, **args)
-        return Image(resource.url, resource.content_type, description=resource.description)
-
-    def __init__(self, url: str, content_type: str, *, description: str = None) -> None:
-        super().__init__(url, content_type, description=description)
+        return Image(resource.url, resource.content_type, description=resource.description,
+                     image=resource.image)
 
 class Video(Resource):
     """See :ref:`Video`."""
@@ -199,6 +199,48 @@ class Analyzer:
                 raise ForbiddenResourceError(f'Forbidden resource at {url}')
             raise CommunicationError(f'Unexpected response status {e.code} for GET {url}')
 
+    # TODO OQ thumbnail maybe not correct name, bc webpage.image and video.image is rather something
+    # like cover/preview/image-repr/etc.
+    # TODO: test: setup analzyer with files always
+    # TODO: test: generate_thumbnail itself? best like rotated large cat jpeg and test if rotation,
+    # size and exif removed??
+    # TODO: test: handle_xxx only test if file: url, then we know it went through thumbnail
+    # TODO: generate_thumbnail(data, content_type) is real use case, e.g. cover from audio file,
+    # from video file, ...
+    #   OQ: file URL? but why, just an unnecessary level of redirection
+    async def generate_thumbnail(self, url: str) -> Image:
+        """TODO."""
+        data, content_type, url = await self.fetch(url)
+        return await self._generate_thumbnail(url, data, content_type)
+
+    async def _generate_thumbnail(self, url: str, data: bytes, content_type: str) -> Image:
+        if content_type not in {'image/bmp', 'image/gif', 'image/jpeg', 'image/png', 'image/svg+xml'}:
+            raise BrokenResourceError('thumbnail no image lol')
+        if self.files:
+            # TODO: BrokenResourceError if content_type is wrong or reading data fails
+            if content_type != 'image/svg+xml':
+                try:
+                    src = PIL.Image.open(BytesIO(data))
+                except UnidentifiedImageError:
+                    raise BrokenResourceError('thumbnail image broken')
+                #print('EXIFA', src.info)
+                #print('FORMATA', src.format)
+                img = ImageOps.exif_transpose(src)
+                # ^ cool, new image is a copy with empty/bare exif data
+                #print('EXIFB', img.info)
+                #print('FORMATB', img.format)
+                img.thumbnail((1280, 720))
+                stream = BytesIO()
+                img.save(stream, format=src.format)
+                # print('EXIFC', img.info)
+                data = stream.getvalue()
+            url = await self.files.write(data, content_type)
+        # otherwise would maybe return (url, content_type) or (url, size) or only url
+        # or TypedDict('Thumbnail', {'image_url': str, 'image_size': Tuple[int, int]})
+        #    ^ can be used as kwargs
+        # or namedtuple
+        return Image(url, content_type)
+
     def _get_cache(self, url: str) -> Resource:
         resource, expires = self._cache[url]
         if datetime.utcnow() >= expires:
@@ -294,13 +336,20 @@ class Files:
                 Path(path).unlink()
         return await get_event_loop().run_in_executor(None, _f)
 
-def handle_image(url: str, content_type: str, data: bytes, analyzer: Analyzer) -> Optional[Image]:
+from io import BytesIO
+
+async def handle_image(url: str, content_type: str, data: bytes, analyzer: Analyzer) -> Optional[Image]:
     """Process an image resource."""
     # pylint: disable=unused-argument; part of API
     # https://en.wikipedia.org/wiki/Comparison_of_web_browsers#Image_format_support
-    if content_type in {'image/bmp', 'image/gif', 'image/jpeg', 'image/png', 'image/svg+xml'}:
-        return Image(url, content_type)
-    return None
+    if content_type not in {'image/bmp', 'image/gif', 'image/jpeg', 'image/png', 'image/svg+xml'}:
+        return None
+    #thumbnail = None
+    #if analyzer.files:
+    #    thumbnail_url = await analyzer.files.write(scale(data, content_type), content_type)
+    #    thumbnail = Image(thumbnail_url, content_type)
+    thumbnail = await analyzer._generate_thumbnail(url, data, content_type)
+    return Image(url, content_type, image=thumbnail)
 
 async def handle_webpage(url: str, content_type: str, data: bytes,
                          analyzer: Analyzer) -> Optional[Resource]:
@@ -322,15 +371,19 @@ async def handle_webpage(url: str, content_type: str, data: bytes,
                  parser.meta.get('og:image:secure_url'))
     if image_url:
         image_url = urljoin(url, image_url)
-        try:
-            resource = await analyzer.analyze(image_url)
-        except error.ValueError:
-            raise BrokenResourceError(
-                'Bad data image URL scheme {!r} analyzing {}'.format(image_url, url))
-        if not isinstance(resource, Image):
-            raise BrokenResourceError(
-                'Bad image type {!r} analyzing {}'.format(type(resource).__name__, url))
-        image = resource
+        #try:
+        #    resource = await analyzer.analyze(image_url)
+        #except error.ValueError:
+        #    raise BrokenResourceError(
+        #        'Bad data image URL scheme {!r} analyzing {}'.format(image_url, url))
+        #if not isinstance(resource, Image):
+        #    raise BrokenResourceError(
+        #        'Bad image type {!r} analyzing {}'.format(type(resource).__name__, url))
+        #image = resource
+        #if analyzer.files:
+        #    data, content_type, _ = await analyzer.fetch(image_url)
+        #    image_url = await analyzer.files.write(scale(data, content_type), content_type)
+        image = await analyzer.generate_thumbnail(image_url)
 
     return Resource(url, content_type, description=description, image=image)
 
@@ -357,7 +410,14 @@ def handle_youtube(key: str) -> HandleResourceFunc:
             description = expect_type(str)(items[0]['snippet']['title']) # type: ignore
             image_url = expect_type(str)(
                 items[0]['snippet']['thumbnails']['high']['url']) # type: ignore
-            image = expect_type(Image)(await analyzer.analyze(image_url))
+            # image = expect_type(Image)(await analyzer.analyze(image_url))
+            # if analyzer.files:
+            #     data, content_type, _ = await analyzer.fetch(image_url)
+            #     image_url = await analyzer.files.write(scale(data, content_type), content_type)
+            # if analyzer.files:
+            #     image_url = await analyzer.generate_thumbnail(image_url)
+            # image = Image(image_url, content_type)
+            image = await analyzer.generate_thumbnail(image_url)
         except (TypeError, LookupError, AnalysisError):
             raise CommunicationError(
                 'Bad result for GET {}videos?id={}'.format(youtube.url, video_id))
