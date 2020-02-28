@@ -390,6 +390,14 @@ legend {
     margin: 0;
 }
 
+.micro-block {
+    margin: 0;
+}
+
+p.micro-block {
+    padding: var(--micro-size-xs);
+}
+
 .micro-panel > h1,
 .micro-panel > p,
 .micro-panel > .link,
