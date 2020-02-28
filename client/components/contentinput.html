@@ -1,0 +1,26 @@
+<template id="micro-text-entity-input-template">
+    <div data-content="renderResource entity"></div>
+    <button is="micro-button" type="button" class="action action-subtle" data-run="remove">
+        <i class="fa fa-minus-circle"></i> Remove
+    </button>
+    <label>
+        <textarea data-oninput="input" data-onclick="input" data-onkeyup="input" data-onblur="input" data-onfocus="input"></textarea>
+    </label>
+    <p>
+        <small>
+            <i class="fa fa-spinner fa-spin"></i> You can add more content (image, video, …) by
+            inserting a link.
+        </small>
+    </p>
+</template>
+
+<style>
+    micro-text-entity-input > * {
+        margin: calc(1.5rem / 4) 0;
+    }
+
+    micro-text-entity-input:not(.micro-text-entity-input-entity) > button,
+    micro-text-entity-input:not(.micro-text-entity-input-previewing) > p i {
+        display: none;
+    }
+</style>

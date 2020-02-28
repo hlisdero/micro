@@ -249,6 +249,7 @@ class Server:
             # Provide alias because /api/analytics triggers popular ad blocking filters
             (r'/api/(?:analytics|stats)/statistics/([^/]+)$', _StatisticEndpoint),
             (r'/api/(?:analytics|stats)/referrals$', _ReferralsEndpoint),
+            (r'/api/previews/(.+)$', _PreviewEndpoint),
             (r'/files$', _FilesEndpoint), # type: ignore[misc]
             (r'/files/([^/]+)$', _FileEndpoint), # type: ignore[misc]
             *handlers,
@@ -964,6 +965,18 @@ class _ReferralsEndpoint(CollectionEndpoint):
         referral = self.app.analytics.referrals.add(url, user=self.current_user)
         self.set_status(HTTPStatus.CREATED) # type: ignore
         self.write(referral.json(restricted=True, include=True))
+
+class _PreviewEndpoint(Endpoint):
+    async def get(self, url: str) -> None:
+        print('PREVIEW GET', url)
+        # if url.startswith(f'{self.server.url}/files/')
+        # resource = await self.app.analyzer.analyze(self.server.rewrite_url(url, reverse=True))
+        resource = await self.app.analyzer.analyze(self.server.rewrite(url, reverse=True))
+        self.write(resource.json(rewrite=self.server.rewrite))
+        print('PREVIEW DONE', resource.json(rewrite=self.server.rewrite))
+        # self.write({'url': url, 'resource': resource.json()})
+        # x = {'url': url, 'resource': self.server.replace_file_urls(resource.json())}
+        # x = {'url': url, 'resource': resource.json(url='{}/files/'.format(self.server.url))}
 
 class _FilesEndpoint(RequestHandler):
     CONTENT_TYPES = {'image/bmp', 'image/gif', 'image/jpeg', 'image/png', 'image/svg+xml'}

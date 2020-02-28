@@ -56,9 +56,13 @@ hello.StartPage = class extends micro.Page {
             createGreeting: async() => {
                 try {
                     const form = this.querySelector("form");
-                    const text = form.elements.text.value;
-                    const match = text.match(/^https?:\/\/\S+/u);
-                    const resource = match ? match[0] : null;
+                    const input = this.querySelector("micro-text-entity-input");
+                    const text = input.value.text;
+                    const resource = input.value.entity;
+                    input.reset();
+                    // const text = form.elements.text.value;
+                    // const match = text.match(/^https?:\/\/\S+/u);
+                    // const resource = match ? match[0] : null;
                     await ui.call("POST", "/api/greetings", {text, resource});
                     form.reset();
                 } catch (e) {

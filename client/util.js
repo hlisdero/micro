@@ -285,6 +285,19 @@ micro.util.withAlpha = function(color, alpha) {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
+micro.util.findURLs = function(text) {
+    let urls = [];
+    let pattern = /(^|\s)(https?:\/\/\S+)/g;
+    let match = null;
+    do {
+        match = pattern.exec(text);
+        if (match) {
+            urls.push({url: match[2], from: match[1] ? match.index + 1 : match.index, to: pattern.lastIndex});
+        }
+    } while (match);
+    return urls;
+};
+
 /**
  * Import the script located at *url*.
  *

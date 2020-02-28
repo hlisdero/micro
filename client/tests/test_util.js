@@ -70,3 +70,20 @@ describe("parseCoords()", function() {
         expect(() => micro.util.parseCoords("92 -182")).to.throw(RangeError);
     });
 });
+
+const TEXT = `\
+https://example.org/foo
+oink http://example.com/bar oink
+http://example.net/\
+`;
+
+describe("findURLs", function() {
+    it("should find URLs", function() {
+        let urls = micro.util.findURLs(TEXT);
+        expect(urls).to.deep.equal([
+            {url: "https://example.org/foo", from: 0, to: 23},
+            {url: "http://example.com/bar", from: 29, to: 51},
+            {url: "http://example.net/", from: 57, to: 76}
+        ]);
+    });
+});
