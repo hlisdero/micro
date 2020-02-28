@@ -1,6 +1,6 @@
-<template id="micro-text-entity-input-template">
+<template id="micro-content-input-template">
     <div class="micro-input-wrapper">
-        <div class="micro-content-resource" data-content="renderResource entity"></div>
+        <div class="micro-content-resource" data-content="renderResource resource"></div>
         <p class="micro-content-input-progress micro-block">
             <i class="fa fa-spinner fa-spin"></i>
         </p>
@@ -65,12 +65,12 @@
 </template>
 
 <style>
-    micro-text-entity-input > * {
+    micro-content-input > * {
         margin: calc(1.5rem / 4) 0;
     }
 
-    micro-text-entity-input:not(.micro-text-entity-input-entity) > div > button,
-    micro-text-entity-input:not(.micro-text-entity-input-previewing) .micro-content-input-progress {
+    micro-content-input:not(.micro-content-input-entity) > div > button,
+    micro-content-input:not(.micro-content-input-previewing) .micro-content-input-progress {
         display: none;
     }
 
@@ -82,7 +82,7 @@
         padding: var(--micro-size-xs);
     }
 
-    micro-text-entity-input footer {
+    micro-content-input footer {
         border-top: 1px solid var(--micro-color-delimiter);
     }
 

@@ -23,7 +23,7 @@
                 <p>Leave a greeting for everyone to read:</p>
                 <form data-shortcut-context="new ShortcutContext">
                     <!--<label><textarea name="text" required="required"></textarea></label>-->
-                    <micro-text-entity-input></micro-text-entity-input>
+                    <micro-content-input></micro-content-input>
                     <p>
                         <button
                             is="micro-button" class="action"
@@ -47,6 +47,11 @@
             </ul>
         </template>
         <style>
+            hello-start-page {
+                --micro-link-max-height: calc(1.5em * 5);
+                --micro-image-max-height: calc(1.5em * 5);
+            }
+
             .hello-start-intro {
                 margin: calc(1.5rem * 3) 0;
                 text-align: center;
@@ -65,8 +70,6 @@
             }
 
             .hello-start-greetings {
-                --micro-link-max-height: calc(1.5em * 5);
-                --micro-image-max-height: calc(1.5em * 5);
                 padding: 0;
                 list-style: none;
             }
