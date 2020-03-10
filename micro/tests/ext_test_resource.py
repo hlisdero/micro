@@ -12,17 +12,18 @@
 # You should have received a copy of the GNU Lesser General Public License along with this program.
 # If not, see <http://www.gnu.org/licenses/>.
 
-# type: ignore
 # pylint: disable=missing-docstring; test module
 
 from configparser import ConfigParser
+from tempfile import mkdtemp
+from urllib.parse import urlsplit
 
 from tornado.testing import AsyncTestCase, gen_test
 
-from micro.resource import Analyzer, Video, handle_image, handle_youtube
+from micro.resource import Analyzer, Files, Video, handle_image, handle_youtube
 
 class AnalyzeServiceTest(AsyncTestCase):
-    @gen_test
+    @gen_test # type: ignore[misc]
     async def test_analyze_youtube(self) -> None:
         config = ConfigParser()
         config.read('test.cfg')
@@ -38,4 +39,5 @@ class AnalyzeServiceTest(AsyncTestCase):
         self.assertIsInstance(video, Video)
         self.assertEqual(video.content_type, 'text/html')
         self.assertTrue(video.description)
-        self.assertTrue(video.image)
+        assert video.image
+        self.assertEqual(urlsplit(video.image.url).scheme, 'file')

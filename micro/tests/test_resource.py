@@ -12,10 +12,11 @@
 # You should have received a copy of the GNU Lesser General Public License along with this program.
 # If not, see <http://www.gnu.org/licenses/>.
 
-# type: ignore
 # pylint: disable=missing-docstring; test module
 
+from io import BytesIO
 import os
+from pathlib import Path
 from tempfile import mkdtemp
 from urllib.parse import urlsplit
 
@@ -26,12 +27,20 @@ from micro.error import CommunicationError
 from micro.resource import (Analyzer, BrokenResourceError, Files, ForbiddenResourceError, Image,
                             NoResourceError, Resource)
 
+from importlib import resources
+import PIL
+from . import RES_PATH
+
 class AnalyzerTestCase(AsyncHTTPTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.analyzer = Analyzer(files=Files(mkdtemp()))
+
     def get_app(self) -> Application:
-        return Application([(r'/codes/([^/]+)$', CodeEndpoint)],
+        return Application([(r'/codes/([^/]+)$', CodeEndpoint)], # type: ignore[misc]
                            static_path=os.path.join(os.path.dirname(__file__), 'res'))
 
-    @gen_test
+    @gen_test # type: ignore[misc]
     async def test_analyze_blob(self) -> None:
         analyzer = Analyzer()
         resource = await analyzer.analyze(self.get_url('/static/blob'))
@@ -41,11 +50,11 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
         self.assertIsNone(resource.description)
         self.assertIsNone(resource.image)
 
-    @gen_test
+    @gen_test # type: ignore[misc]
     async def test_analyze_image(self) -> None:
         # analyzer = Analyzer()
         analyzer = Analyzer(files=Files(mkdtemp()))
-        print('FILES', analyzer.files.path)
+        # print('FILES', analyzer.files.path)
         # image = await analyzer.analyze(self.get_url('/static/image.svg'))
         image = await analyzer.analyze(self.get_url('/static/image.jpg'))
         self.assertIsInstance(image, Image)
@@ -53,10 +62,10 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
         self.assertEqual(image.content_type, 'image/jpeg')
         self.assertIsNone(image.description)
         # self.assertIsNone(image.image)
+        assert image.image
         self.assertEqual(urlsplit(image.image.url).scheme, 'file')
-        self.assertRegex(image.image.content_type, 'image/jpeg')
 
-    @gen_test
+    @gen_test # type: ignore[misc]
     async def test_analyze_webpage(self) -> None:
         # analyzer = Analyzer()
         analyzer = Analyzer(files=Files(mkdtemp()))
@@ -64,11 +73,11 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
         self.assertIsInstance(webpage, Resource)
         self.assertEqual(webpage.content_type, 'text/html')
         self.assertEqual(webpage.description, 'Happy Blog')
-        assert isinstance(webpage.image, Image)
+        assert webpage.image
         # self.assertRegex(webpage.image.url, '/static/image.svg$')
-        self.assertRegex(urlsplit(webpage.image.url).scheme, 'file')
+        self.assertEqual(urlsplit(webpage.image.url).scheme, 'file')
 
-    @gen_test
+    @gen_test # type: ignore[misc]
     async def test_analyze_file(self) -> None:
         files = Files(mkdtemp())
         url = await files.write(b'Meow!', 'text/plain')
@@ -77,19 +86,19 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
         self.assertEqual(resource.url, url)
         self.assertEqual(resource.content_type, 'text/plain')
 
-    @gen_test
+    @gen_test # type: ignore[misc]
     async def test_analyze_no_resource(self) -> None:
         analyzer = Analyzer()
         with self.assertRaises(NoResourceError):
             await analyzer.analyze(self.get_url('/foo'))
 
-    @gen_test
+    @gen_test # type: ignore[misc]
     async def test_analyze_forbidden_resource(self) -> None:
         analyzer = Analyzer()
         with self.assertRaises(ForbiddenResourceError):
             await analyzer.analyze(self.get_url('/codes/403'))
 
-    @gen_test
+    @gen_test # type: ignore[misc]
     async def test_analyze_resource_loop(self) -> None:
         # TODO
         # analyzer = Analyzer()
@@ -97,17 +106,37 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
         with self.assertRaises(BrokenResourceError):
             await analyzer.analyze(self.get_url('/static/loop.html'))
 
-    @gen_test
+    @gen_test # type: ignore[misc]
     async def test_analyze_error_response(self) -> None:
         analyzer = Analyzer()
         with self.assertRaises(CommunicationError):
             await analyzer.analyze(self.get_url('/codes/500'))
 
-    @gen_test
+    @gen_test # type: ignore[misc]
     async def test_analyze_no_host(self) -> None:
         analyzer = Analyzer()
         with self.assertRaises(CommunicationError):
             await analyzer.analyze('https://example.invalid/')
+
+    @gen_test # type: ignore[misc]
+    async def test_process_image(self) -> None:
+        # CC BY-SA Joaquim Alves Gaspar
+        # (https://commons.wikimedia.org/wiki/File:Cat_August_2010-4.jpg)
+        with open(Path(RES_PATH) / 'cat.jpg', 'rb') as f:
+            data = f.read()
+        image = await self.analyzer.process_image(data, 'image/jpeg')
+        self.assertEqual(image.content_type, 'image/jpeg')
+        self.assertIsNone(image.description)
+        self.assertIsNone(image.image)
+        assert self.analyzer.files
+        data, _ = await self.analyzer.files.read(image.url)
+        img = PIL.Image.open(BytesIO(data))
+        self.assertEqual(img.size, (1177, 720))
+
+    @gen_test # type: ignore[misc]
+    async def test_process_image_broken(self) -> None:
+        with self.assertRaisesRegex(BrokenResourceError, 'broken'):
+            await self.analyzer.process_image(b'foo', 'image/jpeg')
 
 class FilesTest(AsyncTestCase):
     def setUp(self) -> None:

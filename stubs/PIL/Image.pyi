@@ -4,6 +4,7 @@ from typing import BinaryIO, Optional, Tuple
 
 class Image:
     format: Optional[str]
+    size: Tuple[int, int]
 
     def thumbnail(self, size: Tuple[int, int], resample: int = ...) -> None: ...
 
