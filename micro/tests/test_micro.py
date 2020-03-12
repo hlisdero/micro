@@ -14,7 +14,7 @@
 
 # pylint: disable=missing-docstring; test module
 
-from asyncio import sleep
+from asyncio import get_event_loop, sleep
 from datetime import timedelta, timezone
 from pathlib import Path
 import subprocess
@@ -34,44 +34,68 @@ from micro.test import CatApp, Cat
 from micro.util import ON, randstr
 
 SETUP_DB_SCRIPT = """\
+from asyncio import get_event_loop
 from time import sleep
 
 from micro.test import CatApp
 
-# Forward compatibility for redis-py 3 (deprecated since 0.30.0)
-redis_url = 'redis://localhost/15'
+async def main():
+    # Forward compatibility for redis-py 3 (deprecated since 0.30.0)
+    redis_url = 'redis://localhost/15'
 
-app = CatApp(redis_url=redis_url)
-app.r.flushdb()
-app.update()
-app.sample()
+    app = CatApp(redis_url=redis_url)
+    app.r.flushdb()
+    # TODO: Compatibility for synchronous update (deprecated since TODO)
+    try:
+        await app.update()
+    except TypeError:
+        pass
+    app.sample()
 
-# Compatibility for unmigrated global activity data (deprecated since 0.24.1)
-from micro import Event
-event = Event.create('meow', None, app=app)
-if int(app.r.get('micro_version')) == 6:
-    app.r.oset(event.id, event)
-    app.r.lpush('activity', event.id)
-else:
-    app.activity.publish(event)
+    # Compatibility for unmigrated global activity data (deprecated since 0.24.1)
+    from micro import Event
+    event = Event.create('meow', None, app=app)
+    if int(app.r.get('micro_version')) == 6:
+        app.r.oset(event.id, event)
+        app.r.lpush('activity', event.id)
+    else:
+        app.activity.publish(event)
 
-# Events at different times
-app.settings.edit(provider_name='Meow Inc.')
-sleep(1)
-app.settings.edit(provider_url='https://meow.example.com/')
+    # Events at different times
+    app.settings.edit(provider_name='Meow Inc.')
+    sleep(1)
+    app.settings.edit(provider_url='https://meow.example.com/')
 
-# Compatibility for app without cats (deprecated since 0.6.0)
-if not hasattr(app, 'cats'):
-    from micro.test import Cat
-    app.r.oset('Cat:0', Cat(id='Cat:0', trashed=False, app=app, authors=[], name=None))
-    app.r.oset('Cat:1', Cat(id='Cat:1', trashed=True, app=app, authors=[], name=None))
-    app.r.rpush('cats', 'Cat:0', 'Cat:1')
-else:
-    app.cats.create()
-    app.cats.create().trash()
+    # Compatibility for app without cats (deprecated since 0.6.0)
+    if not hasattr(app, 'cats'):
+        from micro.test import Cat
+        app.r.oset('Cat:0', Cat(id='Cat:0', trashed=False, app=app, authors=[], name=None))
+        app.r.oset('Cat:1', Cat(id='Cat:1', trashed=True, app=app, authors=[], name=None))
+        app.r.rpush('cats', 'Cat:0', 'Cat:1')
+    else:
+        app.cats.create()
+        app.cats.create()
+        app.cats.create()
+        app.cats.create().trash()
 
-# User without activity
-app.login()
+    # User without activity
+    app.login()
+
+    if hasattr(app, 'files'):
+        from micro.util import ON
+
+        url = await app.files.write(b'foo', 'image/svg+xml')
+        await app.cats[0].edit(resource=url, asynchronous=ON)
+        await app.files.garbage_collect()
+
+        image_url = await app.files.write(b'<svg />  ', 'image/svg+xml')
+        await app.cats[1].edit(resource=image_url, asynchronous=ON)
+
+        html = f'<html><head><meta property="og:image" content="{image_url}"></head></html>'
+        url = await app.files.write(html.encode(), 'text/html')
+        await app.cats[2].edit(resource=url, asynchronous=ON)
+
+get_event_loop().run_until_complete(main())
 """
 
 class MicroTestCase(AsyncTestCase):
@@ -79,7 +103,7 @@ class MicroTestCase(AsyncTestCase):
         super().setUp()
         self.app = CatApp(redis_url='15', files_path=mkdtemp())
         self.app.r.flushdb()
-        self.app.update() # type: ignore
+        get_event_loop().run_until_complete(self.app.update()) # type: ignore
         self.staff_member = self.app.login() # type: ignore
         self.user = self.app.login() # type: ignore
 
@@ -118,37 +142,43 @@ class ApplicationTest(MicroTestCase):
 
 class ApplicationUpdateTest(AsyncTestCase):
     @staticmethod
-    def setup_db(tag: str) -> None:
+    def setup_db(tag: str) -> str:
         d = mkdtemp()
         clone = ['git', '-c', 'advice.detachedHead=false', 'clone', '-q', '--single-branch',
                  '--branch', tag, '.', d]
         subprocess.run(clone, check=True)
         subprocess.run(cast(List[str], ['python3', '-c', SETUP_DB_SCRIPT]), cwd=d, check=True)
+        return str(Path(d, 'data'))
 
-    def test_update_db_fresh(self) -> None:
+    @gen_test # type: ignore[misc]
+    async def test_update_db_fresh(self) -> None:
         files_path = str(Path(gettempdir(), randstr()))
         app = CatApp(redis_url='15', files_path=files_path)
         app.r.flushdb()
-        app.update() # type: ignore[no-untyped-call]
+        await app.update() # type: ignore[no-untyped-call]
         self.assertEqual(app.settings.title, 'CatApp')
         self.assertTrue(Path(files_path).is_dir())
 
     @gen_test # type: ignore[misc]
-    async def test_update_db_version_previous(self):
-        self.setup_db('0.38.1')
+    async def test_update_db_version_previous(self) -> None:
+        files_path = self.setup_db('0.48.1')
         await sleep(1)
-        app = CatApp(redis_url='15', files_path=mkdtemp())
-        app.update() # type: ignore
+        app = CatApp(redis_url='15', files_path=files_path)
+        await app.update() # type: ignore
 
-        app.user = app.settings.staff[0]
-        first = app.activity[-1].time.replace(tzinfo=timezone.utc)
-        last = app.cats[1].activity[0].time.replace(tzinfo=timezone.utc)
-        self.assertEqual(app.user.create_time, first)
-        self.assertEqual(app.user.authenticate_time, last)
-        user = app.users[1]
-        self.assertEqual(user.create_time, user.authenticate_time)
-        self.assertAlmostEqual(user.create_time, app.now(), delta=timedelta(minutes=1))
-        self.assertGreater(user.create_time, last)
+        cats = list(app.cats.values())
+        assert cats[0].resource and cats[0].resource.image
+        self.assertEqual(
+            cats[0].resource.image.url,
+            'file:/f68e724d27d8f77658c3fefb57fba1f236c3f0592e66bfbaac3547ffdcdadc8b.svg')
+        assert cats[1].resource and cats[1].resource.image
+        self.assertEqual(
+            cats[1].resource.image.url,
+            'file:/db088beb69033bc61013810b8fec7c65a9608354b262c80b89ec97e72177ea44.svg')
+        assert cats[2].resource and cats[2].resource.image
+        self.assertEqual(
+            cats[2].resource.image.url,
+            'file:/db088beb69033bc61013810b8fec7c65a9608354b262c80b89ec97e72177ea44.svg')
 
     @gen_test # type: ignore[misc]
     async def test_update_db_version_first(self):
@@ -157,7 +187,7 @@ class ApplicationUpdateTest(AsyncTestCase):
         self.setup_db('tmp')
         await sleep(1)
         app = CatApp(redis_url='15', files_path=mkdtemp())
-        app.update()
+        await app.update()
 
         # Update to version 3
         self.assertFalse(app.settings.provider_description)

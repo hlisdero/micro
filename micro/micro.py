@@ -45,8 +45,8 @@ from .error import CommunicationError, ValueError
 from .jsonredis import (ExpectFunc, JSONRedis, JSONRedisSequence, JSONRedisMapping, RedisList,
                         RedisSequence, bzpoptimed)
 from .resource import ( # pylint: disable=unused-import; typing
-    Analyzer, Files, HandleResourceFunc, Image, Resource, Video, handle_image, handle_webpage,
-    handle_youtube)
+    AnalysisError, Analyzer, Files, HandleResourceFunc, Image, Resource, Video, handle_image,
+    handle_webpage, handle_youtube)
 from .util import (Expect, OnType, check_email, expect_opt_type, expect_type, parse_isotime,
                    randstr, run_instant, str_or_none)
 
@@ -202,7 +202,7 @@ class Application:
         """Return the current UTC date and time, as aware object with second accuracy."""
         return datetime.now(timezone.utc).replace(microsecond=0)
 
-    def update(self):
+    async def update(self) -> None:
         """Update the database.
 
         If the database is fresh, it will be initialized. If the database is already up-to-date,
@@ -220,7 +220,7 @@ class Application:
             self.r.oset(settings.id, settings)
             activity = Activity(id='Activity', app=self, subscriber_ids=[])
             self.r.oset(activity.id, activity)
-            self.r.set('micro_version', 9)
+            self.r.set('micro_version', 10)
             self.do_update()
             return
 
@@ -285,7 +285,7 @@ class Application:
             for obj in self._scan_objects(r, Trashable):
                 if obj['trashed']:
                     t = (datetime.now(timezone.utc) + Trashable.RETENTION).timestamp()
-                    r.zadd('micro_trash', {obj['id'].encode(): t})
+                    r.zadd('micro_trash', {expect_str(obj['id']).encode(): t})
             r.set('micro_version', 8)
 
         # Deprecated since 0.39.0
@@ -305,6 +305,26 @@ class Application:
                 user['authenticate_time'] = last.isoformat()
             r.omset({user['id']: user for user in users})
             r.set('micro_version', 9)
+
+        # TODO
+        if v < 10:
+            for obj in self._scan_objects(r, WithContent):
+                # Application specific WithContent update might not have been applied yet
+                if 'resource' not in obj:
+                    continue
+                resource = cast(Optional[Dict[str, object]], obj['resource'])
+                if resource:
+                    src = (resource if resource['__type__'] == 'Image'
+                           else cast(Optional[Dict[str, object]], resource['image']))
+                    if src:
+                        try:
+                            dest = await self.analyzer.process_image(cast(str, src['url']))
+                        except AnalysisError as e:
+                            url = await self.files.write(b'<svg />', 'image/svg+xml')
+                            dest = Image(url, 'image/svg+xml')
+                        resource['image'] = dest.json()
+                        r.oset(cast(str, obj['id']), obj)
+            r.set('micro_version', 10)
 
         self.do_update()
 
@@ -484,7 +504,7 @@ class Application:
         return type(app=self, **json)
 
     def _scan_objects(self, r: JSONRedis[Dict[str, object]],
-                      cls: 'Type[Object]' = None) -> Iterator[Dict[str, object]]:
+                      cls: 'Type[object]' = None) -> Iterator[Dict[str, object]]:
         for key in cast(List[bytes], r.keys('*')):
             try:
                 obj = r.oget(key.decode(), default=AssertionError)
@@ -494,6 +514,30 @@ class Application:
                 if ('__type__' in obj and
                         issubclass(self.types[expect_type(str)(obj['__type__'])], cls or Object)):
                     yield obj
+
+    #def _robjects(
+    #        self, r: JSONRedis[Dict[str, object]],
+    #        cls: Type[object] = object) -> Iterator[Tuple[str, Dict[str, object], Dict[str, object]]]:
+    #    def _f(
+    #            key: str, host: Dict[str, object],
+    #            obj: Dict[str, object]) -> Iterator[Tuple[str, Dict[str, object], Dict[str, object]]]:
+    #        if isinstance(obj, dict):
+    #            if ('__type__' in obj and
+    #                    issubclass(self.types[expect_type(str)(obj['__type__'])], cls or object)):
+    #                yield key, host, obj
+    #            for value in obj.values():
+    #                yield from _f(key, host, value)
+    #        if isinstance(obj, list):
+    #            for value in obj:
+    #                yield from _f(key, host, value)
+
+    #    for key in cast(List[bytes], r.keys('*')):
+    #        try:
+    #            obj = r.oget(key.decode(), default=AssertionError)
+    #        except ResponseError:
+    #            pass
+    #        else:
+    #            yield from _f(key.decode(), obj, obj)
 
     @staticmethod
     def _generate_push_vapid_keys():

@@ -207,7 +207,7 @@ Image
 
 Image :ref:`Resource` description.
 
-Note that the *image* representation is always ``null``.
+Note that *image* is a thumbnail of the picture.
 
 .. include:: micro/resource-attributes.inc
 

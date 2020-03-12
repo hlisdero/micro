@@ -276,9 +276,9 @@ class Server:
         self._micro_templates = Loader(os.path.join(self.client_path, self.client_modules_path,
                                                     '@noyainrain/micro'))
 
-    def start(self) -> None:
+    async def start(self) -> None:
         """Start the server."""
-        self.app.update() # type: ignore
+        await self.app.update() # type: ignore
         self._garbage_collect_files_task = self.app.start_garbage_collect_files()
         self._empty_trash_task = self.app.start_empty_trash()
         self._collect_statistics_task = self.app.analytics.start_collect_statistics()
@@ -296,8 +296,8 @@ class Server:
 
     def run(self) -> None:
         """Start the server and run it continuously."""
-        self.start()
         loop = get_event_loop()
+        loop.create_task(self.start())
         def _on_sigint() -> None:
             async def _stop() -> None:
                 await self.stop()

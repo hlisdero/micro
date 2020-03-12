@@ -42,8 +42,7 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
 
     @gen_test # type: ignore[misc]
     async def test_analyze_blob(self) -> None:
-        analyzer = Analyzer()
-        resource = await analyzer.analyze(self.get_url('/static/blob'))
+        resource = await self.analyzer.analyze(self.get_url('/static/blob'))
         self.assertIsInstance(resource, Resource)
         self.assertRegex(resource.url, r'/static/blob$')
         self.assertEqual(resource.content_type, 'application/octet-stream')
@@ -53,10 +52,9 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
     @gen_test # type: ignore[misc]
     async def test_analyze_image(self) -> None:
         # analyzer = Analyzer()
-        analyzer = Analyzer(files=Files(mkdtemp()))
         # print('FILES', analyzer.files.path)
         # image = await analyzer.analyze(self.get_url('/static/image.svg'))
-        image = await analyzer.analyze(self.get_url('/static/image.jpg'))
+        image = await self.analyzer.analyze(self.get_url('/static/image.jpg'))
         self.assertIsInstance(image, Image)
         # self.assertEqual(image.content_type, 'image/svg+xml')
         self.assertEqual(image.content_type, 'image/jpeg')
@@ -68,8 +66,7 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
     @gen_test # type: ignore[misc]
     async def test_analyze_webpage(self) -> None:
         # analyzer = Analyzer()
-        analyzer = Analyzer(files=Files(mkdtemp()))
-        webpage = await analyzer.analyze(self.get_url('/static/webpage.html'))
+        webpage = await self.analyzer.analyze(self.get_url('/static/webpage.html'))
         self.assertIsInstance(webpage, Resource)
         self.assertEqual(webpage.content_type, 'text/html')
         self.assertEqual(webpage.description, 'Happy Blog')
@@ -79,44 +76,38 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
 
     @gen_test # type: ignore[misc]
     async def test_analyze_file(self) -> None:
-        files = Files(mkdtemp())
-        url = await files.write(b'Meow!', 'text/plain')
-        analyzer = Analyzer(files=files)
-        resource = await analyzer.analyze(url)
+        assert self.analyzer.files
+        url = await self.analyzer.files.write(b'Meow!', 'text/plain')
+        resource = await self.analyzer.analyze(url)
         self.assertEqual(resource.url, url)
         self.assertEqual(resource.content_type, 'text/plain')
 
     @gen_test # type: ignore[misc]
     async def test_analyze_no_resource(self) -> None:
-        analyzer = Analyzer()
         with self.assertRaises(NoResourceError):
-            await analyzer.analyze(self.get_url('/foo'))
+            await self.analyzer.analyze(self.get_url('/foo'))
 
     @gen_test # type: ignore[misc]
     async def test_analyze_forbidden_resource(self) -> None:
-        analyzer = Analyzer()
         with self.assertRaises(ForbiddenResourceError):
-            await analyzer.analyze(self.get_url('/codes/403'))
+            await self.analyzer.analyze(self.get_url('/codes/403'))
 
     @gen_test # type: ignore[misc]
     async def test_analyze_resource_loop(self) -> None:
         # TODO
         # analyzer = Analyzer()
-        analyzer = Analyzer(files=Files(mkdtemp()))
         with self.assertRaises(BrokenResourceError):
-            await analyzer.analyze(self.get_url('/static/loop.html'))
+            await self.analyzer.analyze(self.get_url('/static/loop.html'))
 
     @gen_test # type: ignore[misc]
     async def test_analyze_error_response(self) -> None:
-        analyzer = Analyzer()
         with self.assertRaises(CommunicationError):
-            await analyzer.analyze(self.get_url('/codes/500'))
+            await self.analyzer.analyze(self.get_url('/codes/500'))
 
     @gen_test # type: ignore[misc]
     async def test_analyze_no_host(self) -> None:
-        analyzer = Analyzer()
         with self.assertRaises(CommunicationError):
-            await analyzer.analyze('https://example.invalid/')
+            await self.analyzer.analyze('https://example.invalid/')
 
     @gen_test # type: ignore[misc]
     async def test_process_image(self) -> None:
