@@ -216,7 +216,7 @@ class Application:
         if not v:
             settings = self.create_settings()
             settings.push_vapid_private_key, settings.push_vapid_public_key = (
-                self._generate_push_vapid_keys())
+                self._generate_push_vapid_keys()) # type: ignore
             self.r.oset(settings.id, settings)
             activity = Activity(id='Activity', app=self, subscriber_ids=[])
             self.r.oset(activity.id, activity)
@@ -284,29 +284,30 @@ class Application:
         if v < 8:
             for obj in self._scan_objects(r, Trashable):
                 if obj['trashed']:
-                    t = (datetime.now(timezone.utc) + Trashable.RETENTION).timestamp()
-                    r.zadd('micro_trash', {expect_str(obj['id']).encode(): t})
+                    ts = (datetime.now(timezone.utc) + Trashable.RETENTION).timestamp()
+                    r.zadd('micro_trash', {expect_str(obj['id']).encode(): ts})
             r.set('micro_version', 8)
 
         # Deprecated since 0.39.0
         if v < 9:
-            activity = {}
+            user_activity: Dict[str, Tuple[datetime, datetime]] = {}
             for event in self._scan_objects(r, Event):
-                user_id = event['user']
-                t = parse_isotime(event['time'], aware=True)
-                first, last = activity.get(user_id) or (t, t)
-                activity[user_id] = (min(first, t), max(last, t))
+                user_id = cast(str, event['user'])
+                t = parse_isotime(cast(str, event['time']), aware=True)
+                first, last = user_activity.get(user_id) or (t, t)
+                user_activity[user_id] = (min(first, t), max(last, t))
 
             now = self.now()
-            users = r.omget(r.lrange('users', 0, -1))
+            users = r.omget([id.decode() for id in cast(List[bytes], r.lrange('users', 0, -1))],
+                            default=AssertionError)
             for user in users:
-                first, last = activity.get(user['id']) or (now, now)
+                first, last = user_activity.get(cast(str, user['id'])) or (now, now)
                 user['create_time'] = first.isoformat()
                 user['authenticate_time'] = last.isoformat()
-            r.omset({user['id']: user for user in users})
+            r.omset({cast(str, user['id']): user for user in users})
             r.set('micro_version', 9)
 
-        # TODO
+        # Deprecated since 0.49.0
         if v < 10:
             for obj in self._scan_objects(r, WithContent):
                 # Application specific WithContent update might not have been applied yet
@@ -319,7 +320,7 @@ class Application:
                     if src:
                         try:
                             dest = await self.analyzer.process_image(cast(str, src['url']))
-                        except AnalysisError as e:
+                        except AnalysisError:
                             url = await self.files.write(b'<svg />', 'image/svg+xml')
                             dest = Image(url, 'image/svg+xml')
                         resource['image'] = dest.json()
@@ -504,7 +505,7 @@ class Application:
         return type(app=self, **json)
 
     def _scan_objects(self, r: JSONRedis[Dict[str, object]],
-                      cls: 'Type[object]' = None) -> Iterator[Dict[str, object]]:
+                      cls: Type[object] = None) -> Iterator[Dict[str, object]]:
         for key in cast(List[bytes], r.keys('*')):
             try:
                 obj = r.oget(key.decode(), default=AssertionError)
@@ -514,30 +515,6 @@ class Application:
                 if ('__type__' in obj and
                         issubclass(self.types[expect_type(str)(obj['__type__'])], cls or Object)):
                     yield obj
-
-    #def _robjects(
-    #        self, r: JSONRedis[Dict[str, object]],
-    #        cls: Type[object] = object) -> Iterator[Tuple[str, Dict[str, object], Dict[str, object]]]:
-    #    def _f(
-    #            key: str, host: Dict[str, object],
-    #            obj: Dict[str, object]) -> Iterator[Tuple[str, Dict[str, object], Dict[str, object]]]:
-    #        if isinstance(obj, dict):
-    #            if ('__type__' in obj and
-    #                    issubclass(self.types[expect_type(str)(obj['__type__'])], cls or object)):
-    #                yield key, host, obj
-    #            for value in obj.values():
-    #                yield from _f(key, host, value)
-    #        if isinstance(obj, list):
-    #            for value in obj:
-    #                yield from _f(key, host, value)
-
-    #    for key in cast(List[bytes], r.keys('*')):
-    #        try:
-    #            obj = r.oget(key.decode(), default=AssertionError)
-    #        except ResponseError:
-    #            pass
-    #        else:
-    #            yield from _f(key.decode(), obj, obj)
 
     @staticmethod
     def _generate_push_vapid_keys():

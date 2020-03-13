@@ -103,7 +103,7 @@ class MicroTestCase(AsyncTestCase):
         super().setUp()
         self.app = CatApp(redis_url='15', files_path=mkdtemp())
         self.app.r.flushdb()
-        get_event_loop().run_until_complete(self.app.update()) # type: ignore
+        get_event_loop().run_until_complete(self.app.update())
         self.staff_member = self.app.login() # type: ignore
         self.user = self.app.login() # type: ignore
 
@@ -142,51 +142,48 @@ class ApplicationTest(MicroTestCase):
 
 class ApplicationUpdateTest(AsyncTestCase):
     @staticmethod
-    def setup_db(tag: str) -> str:
+    def setup_db(tag: str) -> Tuple[str, str]:
         d = mkdtemp()
         clone = ['git', '-c', 'advice.detachedHead=false', 'clone', '-q', '--single-branch',
                  '--branch', tag, '.', d]
         subprocess.run(clone, check=True)
         subprocess.run(cast(List[str], ['python3', '-c', SETUP_DB_SCRIPT]), cwd=d, check=True)
-        return str(Path(d, 'data'))
+        return '15', str(Path(d, 'data'))
 
     @gen_test # type: ignore[misc]
     async def test_update_db_fresh(self) -> None:
         files_path = str(Path(gettempdir(), randstr()))
         app = CatApp(redis_url='15', files_path=files_path)
         app.r.flushdb()
-        await app.update() # type: ignore[no-untyped-call]
+        await app.update()
         self.assertEqual(app.settings.title, 'CatApp')
         self.assertTrue(Path(files_path).is_dir())
 
     @gen_test # type: ignore[misc]
     async def test_update_db_version_previous(self) -> None:
-        files_path = self.setup_db('0.48.1')
+        redis_url, files_path = self.setup_db('0.48.1')
+        app = CatApp(redis_url=redis_url, files_path=files_path)
         await sleep(1)
-        app = CatApp(redis_url='15', files_path=files_path)
         await app.update() # type: ignore
 
         cats = list(app.cats.values())
         assert cats[0].resource and cats[0].resource.image
-        self.assertEqual(
-            cats[0].resource.image.url,
-            'file:/f68e724d27d8f77658c3fefb57fba1f236c3f0592e66bfbaac3547ffdcdadc8b.svg')
+        data, _ = await app.files.read(cats[0].resource.image.url)
+        self.assertEqual(data, b'<svg />')
         assert cats[1].resource and cats[1].resource.image
-        self.assertEqual(
-            cats[1].resource.image.url,
-            'file:/db088beb69033bc61013810b8fec7c65a9608354b262c80b89ec97e72177ea44.svg')
+        data, _ = await app.files.read(cats[1].resource.image.url)
+        self.assertEqual(data, b'<svg />  ')
         assert cats[2].resource and cats[2].resource.image
-        self.assertEqual(
-            cats[2].resource.image.url,
-            'file:/db088beb69033bc61013810b8fec7c65a9608354b262c80b89ec97e72177ea44.svg')
+        data, _ = await app.files.read(cats[2].resource.image.url)
+        self.assertEqual(data, b'<svg />  ')
 
     @gen_test # type: ignore[misc]
     async def test_update_db_version_first(self):
         Trashable.RETENTION = timedelta(seconds=0.2)
         # NOTE: Tag tmp can be removed on next database update
-        self.setup_db('tmp')
+        redis_url, files_path = self.setup_db('tmp')
+        app = CatApp(redis_url=redis_url, files_path=files_path)
         await sleep(1)
-        app = CatApp(redis_url='15', files_path=mkdtemp())
         await app.update()
 
         # Update to version 3

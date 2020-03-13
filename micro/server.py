@@ -283,6 +283,7 @@ class Server:
         self._empty_trash_task = self.app.start_empty_trash()
         self._collect_statistics_task = self.app.analytics.start_collect_statistics()
         self._server.listen(self.port)
+        getLogger(__name__).info('Started server at %s/', self.url)
 
     async def stop(self) -> None:
         """Stop the server."""
@@ -297,14 +298,13 @@ class Server:
     def run(self) -> None:
         """Start the server and run it continuously."""
         loop = get_event_loop()
-        loop.create_task(self.start())
         def _on_sigint() -> None:
             async def _stop() -> None:
                 await self.stop()
                 loop.stop()
             ensure_future(_stop())
         loop.add_signal_handler(SIGINT, _on_sigint)
-        getLogger(__name__).info('Started server at %s/', self.url)
+        loop.create_task(self.start())
         loop.run_forever()
 
     def rewrite(self, url: str, *, reverse: bool = False) -> str:

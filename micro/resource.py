@@ -32,6 +32,7 @@ from functools import partial
 from hashlib import sha256
 from html.parser import HTMLParser
 from inspect import isawaitable
+from io import BytesIO
 import mimetypes
 from mimetypes import guess_extension, guess_type
 from os import listdir
@@ -48,8 +49,6 @@ from .core import RewriteFunc
 from .error import CommunicationError, Error
 from .util import Expect, expect_type, str_or_none
 from .webapi import WebAPI, fetch
-
-from functools import singledispatch
 
 HandleResourceFunc = Callable[[str, str, bytes, 'Analyzer'],
                               Union[Optional['Resource'], Awaitable[Optional['Resource']]]]
@@ -146,6 +145,8 @@ class Analyzer:
 
         Results are cached for about one hour.
         """
+        # Note that we are moving away from handlers calling analyze on subresources, making loop
+        # protection unnecessary
         if len(self._stack) == 3:
             raise _LoopError()
 
@@ -203,11 +204,14 @@ class Analyzer:
 
     @overload
     async def process_image(self, __data: bytes, __content_type: str) -> Image:
+        # pylint: disable=missing-docstring; overload
         pass
     @overload
     async def process_image(self, __url: str) -> Image:
+        # pylint: disable=missing-docstring; overload
         pass
     async def process_image(self, arg: Union[bytes, str], content_type: str = '') -> Image:
+        """TODO."""
         if not self.files:
             raise ValueError('files')
 
@@ -338,9 +342,8 @@ class Files:
                 Path(path).unlink()
         return await get_event_loop().run_in_executor(None, _f)
 
-from io import BytesIO
-
-async def handle_image(url: str, content_type: str, data: bytes, analyzer: Analyzer) -> Optional[Image]:
+async def handle_image(url: str, content_type: str, data: bytes,
+                       analyzer: Analyzer) -> Optional[Image]:
     """Process an image resource."""
     # pylint: disable=unused-argument; part of API
     # https://en.wikipedia.org/wiki/Comparison_of_web_browsers#Image_format_support

@@ -20,6 +20,7 @@ from pathlib import Path
 from tempfile import mkdtemp
 from urllib.parse import urlsplit
 
+import PIL
 from tornado.testing import AsyncTestCase, AsyncHTTPTestCase, gen_test
 from tornado.web import Application, RequestHandler
 
@@ -27,8 +28,6 @@ from micro.error import CommunicationError
 from micro.resource import (Analyzer, BrokenResourceError, Files, ForbiddenResourceError, Image,
                             NoResourceError, Resource)
 
-from importlib import resources
-import PIL
 from . import RES_PATH
 
 class AnalyzerTestCase(AsyncHTTPTestCase):
@@ -94,8 +93,6 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
 
     @gen_test # type: ignore[misc]
     async def test_analyze_resource_loop(self) -> None:
-        # TODO
-        # analyzer = Analyzer()
         with self.assertRaises(BrokenResourceError):
             await self.analyzer.analyze(self.get_url('/static/loop.html'))
 
