@@ -53,6 +53,8 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
         # analyzer = Analyzer()
         # print('FILES', analyzer.files.path)
         # image = await analyzer.analyze(self.get_url('/static/image.svg'))
+        # CC BY-SA Joaquim Alves Gaspar
+        # (https://commons.wikimedia.org/wiki/File:Cat_August_2010-4.jpg)
         image = await self.analyzer.analyze(self.get_url('/static/image.jpg'))
         self.assertIsInstance(image, Image)
         # self.assertEqual(image.content_type, 'image/svg+xml')
@@ -108,9 +110,7 @@ class AnalyzerTestCase(AsyncHTTPTestCase):
 
     @gen_test # type: ignore[misc]
     async def test_process_image(self) -> None:
-        # CC BY-SA Joaquim Alves Gaspar
-        # (https://commons.wikimedia.org/wiki/File:Cat_August_2010-4.jpg)
-        with open(Path(RES_PATH) / 'cat.jpg', 'rb') as f:
+        with open(Path(RES_PATH) / 'image.jpg', 'rb') as f:
             data = f.read()
         image = await self.analyzer.process_image(data, 'image/jpeg')
         self.assertEqual(image.content_type, 'image/jpeg')
